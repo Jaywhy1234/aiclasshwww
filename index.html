@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>隨機貓咪藝廊</title>
+    <!-- 引入 Tailwind CSS 進行快速樣式設定 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自訂字體，提升閱讀體驗 */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+        }
+        
+        /* 圖片載入時的骨架屏動畫 (Skeleton Loading) */
+        .skeleton {
+            background-color: #e5e7eb; /* Tailwind gray-200 */
+            background-image: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0),
+                rgba(255, 255, 255, 0.5),
+                rgba(255, 255, 255, 0)
+            );
+            background-size: 200px 100%;
+            background-repeat: no-repeat;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200px 0;
+            }
+            100% {
+                background-position: calc(200px + 100%) 0;
+            }
+        }
+        
+        /* 卡片懸停效果 */
+        .cat-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .cat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); /* Tailwind shadow-xl */
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between p-6">
+
+    <div class="w-full max-w-6xl">
+        <!-- 頁面標題 -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">🐾 隨機貓咪藝廊</h1>
+            <p class="text-gray-600">每次重新整理都能看到不同的可愛貓咪！</p>
+            <button id="refresh-btn" class="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-full shadow-md transition-colors duration-200">
+                換一批貓咪
+            </button>
+        </header>
+
+        <!-- 狀態容器：載入中提示 -->
+        <div id="loading-state" class="flex flex-col items-center justify-center py-20 text-gray-500">
+            <svg class="animate-spin h-10 w-10 mb-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-lg font-medium">正在尋找可愛的貓咪...</p>
+        </div>
+
+        <!-- 狀態容器：錯誤提示 -->
+        <div id="error-state" class="hidden flex flex-col items-center justify-center py-20 text-red-500">
+            <svg class="h-16 w-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <p class="text-xl font-bold mb-2">哎呀，載入失敗了！</p>
+            <p id="error-message" class="text-gray-600 text-center max-w-md">無法連接到伺服器或來源暫時不可用，請稍後再試。</p>
+        </div>
+
+        <!-- 資料呈現容器：圖片網格 -->
+        <div id="gallery-container" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <!-- 貓咪卡片將由 JavaScript 動態生成於此 -->
+        </div>
+    </div>
+
+    <!-- 頁尾與資料來源標示 (明確標示資料來源) -->
+    <footer class="mt-12 text-center text-sm text-gray-500 w-full py-4 border-t border-gray-200">
+        <p>
+            資料來源: <a href="https://thecatapi.com/" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline font-medium">The Cat API</a>
+        </p>
+        <p class="mt-1">此頁面僅供示範 API 串接使用。</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const galleryContainer = document.getElementById('gallery-container');
+            const loadingState = document.getElementById('loading-state');
+            const errorState = document.getElementById('error-state');
+            const errorMessageEl = document.getElementById('error-message');
+            const refreshBtn = document.getElementById('refresh-btn');
+
+            // API 設定
+            // 限制數量為 12 張，並只請求靜態圖片 (不含 gif，讓載入更順暢)
+            const apiUrl = 'https://api.thecatapi.com/v1/images/search?limit=12&mime_types=jpg,png';
+            
+            // 函數：控制 UI 狀態顯示
+            function setUIState(state, message = '') {
+                // 先隱藏所有狀態容器
+                loadingState.classList.add('hidden');
+                errorState.classList.add('hidden');
+                galleryContainer.classList.add('hidden');
+                refreshBtn.disabled = false;
+                refreshBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                // 根據參數顯示對應的容器
+                if (state === 'loading') {
+                    loadingState.classList.remove('hidden');
+                    refreshBtn.disabled = true; // 載入時禁用按鈕
+                    refreshBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else if (state === 'error') {
+                    errorState.classList.remove('hidden');
+                    errorMessageEl.textContent = message;
+                } else if (state === 'success') {
+                    galleryContainer.classList.remove('hidden');
+                }
+            }
+
+            // 函數：建立單一貓咪卡片的 HTML 結構
+            function createCatCard(catData) {
+                // 建立卡片容器
+                const card = document.createElement('div');
+                card.className = 'cat-card bg-white rounded-xl overflow-hidden shadow-md border border-gray-100 flex flex-col';
+                
+                // 圖片容器 (設定固定比例，避免圖片載入前後版面跳動)
+                const imageWrapper = document.createElement('div');
+                imageWrapper.className = 'relative w-full pb-[100%] bg-gray-200 skeleton'; // pb-[100%] 創造正方形容器，skeleton 提供載入動畫
+                
+                // 圖片元素
+                const img = document.createElement('img');
+                img.src = catData.url;
+                img.alt = '可愛的貓咪';
+                // 讓圖片填滿容器並保持比例裁剪，預設透明度為0
+                img.className = 'absolute top-0 left-0 w-full h-full object-cover opacity-0 transition-opacity duration-500';
+                
+                // 當圖片載入完成時，顯示圖片並移除骨架屏背景
+                img.onload = () => {
+                    img.classList.remove('opacity-0');
+                    imageWrapper.classList.remove('skeleton');
+                };
+                // 處理單一圖片載入失敗的情況
+                img.onerror = () => {
+                    imageWrapper.classList.remove('skeleton');
+                    imageWrapper.innerHTML = `
+                        <div class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-100">
+                            <svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            <span class="text-sm">圖片無法顯示</span>
+                        </div>
+                    `;
+                };
+
+                // 將圖片加入圖片容器
+                imageWrapper.appendChild(img);
+                
+                // 卡片資訊區塊
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'p-4 text-center mt-auto';
+                
+                // 產生一個隨機的名字或描述 (因為 API 預設不提供名字)
+                const details = document.createElement('p');
+                details.className = 'text-sm text-gray-500 truncate';
+                details.textContent = `ID: ${catData.id}`;
+                
+                infoDiv.appendChild(details);
+                
+                // 組合卡片
+                card.appendChild(imageWrapper);
+                card.appendChild(infoDiv);
+                
+                return card;
+            }
+
+            // 核心函數：從 API 獲取資料
+            async function fetchCats() {
+                // 1. 設定為「載入中」狀態
+                setUIState('loading');
+                
+                // 清空先前的圖片
+                galleryContainer.innerHTML = '';
+
+                try {
+                    // 2. 發送 API 請求
+                    const response = await fetch(apiUrl);
+
+                    // 檢查 HTTP 狀態碼 (例如 404, 500 等)
+                    if (!response.ok) {
+                        throw new Error(`伺服器回應錯誤: ${response.status} ${response.statusText}`);
+                    }
+
+                    // 3. 解析 JSON 資料
+                    const data = await response.json();
+
+                    // 檢查資料格式是否符合預期
+                    if (!Array.isArray(data) || data.length === 0) {
+                        throw new Error('未獲取到任何貓咪圖片資料。');
+                    }
+
+                    // 4. 將資料轉換為卡片並加入到網格容器中
+                    data.forEach(catData => {
+                        const cardElement = createCatCard(catData);
+                        galleryContainer.appendChild(cardElement);
+                    });
+
+                    // 5. 設定為「成功」狀態，顯示藝廊
+                    setUIState('success');
+
+                } catch (error) {
+                    console.error('API 請求失敗:', error);
+                    // 6. 處理錯誤：設定為「錯誤」狀態並顯示錯誤訊息
+                    let errorMsg = '發生未知的錯誤，請稍後再試。';
+                    
+                    // 區分是網路連線問題還是我們拋出的自訂錯誤
+                    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+                        errorMsg = '無法連線到網路或來源伺服器暫時無法存取。請檢查您的網路連線。';
+                    } else if (error.message) {
+                         errorMsg = error.message;
+                    }
+
+                    setUIState('error', errorMsg);
+                }
+            }
+
+            // 綁定按鈕點擊事件
+            refreshBtn.addEventListener('click', fetchCats);
+
+            // 初始載入時立即獲取資料
+            fetchCats();
+        });
+    </script>
+</body>
+</html>
